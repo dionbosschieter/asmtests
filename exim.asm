@@ -1,5 +1,6 @@
 section .data
     fd:       dq 0
+    fdfile:   dq 0
     one:      dq 1
 
     struc sockaddr
@@ -17,8 +18,10 @@ section .data
     iend
 
     ipstring:  db "37.97.128.3", 0xa, 0xd,
+    filename: db "ips.txt", 0x0
 
 section .bss
+    input resd 1024
     response resd 1
 
 section .text
@@ -26,31 +29,40 @@ global _start
 
 _start:
 
-
-
-_socket:
-    mov rbx, 2 ; AF_INET
-    mov rcx, 1 ; SOCK_STREAM
-    mov rdx, 6 ; IPPROTO_TCP
-    mov rax, 359; sys_socket
+_openfile:
+    mov rax, 5 ; open
+    mov rbx, filename ; file to open
+    mov rcx, 2 ; read/write
     int 0x80 ; syscall
-    cmp rax,-1
-    jz  _exit
-    mov [fd], rax ; save file descriptor
+    mov [fdfile], rax ; save file descriptor
+
+_readfile:
+    mov rax, 3 ; read
+    mov rbx, [fdfile] ; stdin
+    mov rcx, input
+    mov rdx, 1024
+    int 0x80 ; syscall
+
+    cmp rax, 0 ; reached eof yet
+    jz _exit
+
+    mov r13, input ; reset offset in input buffer to beginning of buffer
 
 _startreadip:
-    mov rcx, ipstring ; point rax to ipstring buffer
-    xor rdx, rdx      ; zero output char
-    mov r8, 0         ; count for every pair, we start at 1
+    mov rcx, r13      ; point rcx to current offset in input buffer
+    xor rdx, rdx      ; zero output char registry
+    mov r8, 0         ; count for every pair, we start at 0
 
 _readip:
-    mov bl, [rcx]  ; load char from buffer into rbx, we use bl here
-                   ; because we don't want to load more than the current
-                   ; 8 bits of the char
-    cmp rbx, '.'   ; if this is a '.' we reached the end of the integer
-    jz _ereadip    ; then we are finished for this cycle
-    cmp rbx, 0xa   ; we are done, end of string
-    jz _ereadip    ; we are finished
+    mov bl, [rcx]   ; load char from buffer into rbx, we use bl here
+                    ; because we don't want to load more than the current
+                    ; 8 bits of the char
+    cmp rbx, '.'    ; if this is a '.' we reached the end of the integer
+    jz _ereadip     ; then we are finished for this cycle
+    cmp rbx, 0xa    ; we are done, end of string
+    jz _ereadip     ; we are finished
+    cmp rbx, 0x0    ; end of buffer
+    jz _readfile    ; try to read more
 
     sub rbx, '0'   ; convert from ascii to dec
 
@@ -65,7 +77,7 @@ _readip:
 
 _ereadip:
     inc r8
-    cmp r8, 4
+    cmp r8, 4      ; end of ip
     cmovz r12, rdx
     jge _storip
     cmp r8, 3
@@ -87,8 +99,10 @@ _nextchar:
     jmp _readip    ; read next char
 
 _storip:
-    ; we start with the last digit, because it is in reverse order
-    mov rax, r12
+    inc rcx      ; increment to next char, skip newline
+    mov r13, rcx ; save current pointer of buffer for later use
+    
+    mov rax, r12 ; we start with the last digit, because it is in reverse order
     shl rax, 8
     or rax, r11
     shl rax, 8
@@ -98,6 +112,16 @@ _storip:
 
     mov [addr + sin_addr], rax ; stor ip in struct
 
+_socket:
+    mov rbx, 2 ; AF_INET
+    mov rcx, 1 ; SOCK_STREAM
+    mov rdx, 6 ; IPPROTO_TCP
+    mov rax, 359; sys_socket
+    int 0x80 ; syscall
+    cmp rax,-1
+    jz  _exit
+    mov [fd], rax ; save file descriptor
+
 _connect:
     mov rax, 362
     mov rbx, [fd]
@@ -106,7 +130,7 @@ _connect:
     ; call connect
     int 0x80
 
-_read:
+_readsocket:
     mov rax, 3 ; read
     mov rbx, [fd] ; stdin
     mov rcx, response
@@ -124,6 +148,8 @@ _close:
     mov rbx, [fd]
     mov rax, 6 ; close
     int 0x80 ; syscall
+
+    jmp _startreadip
 
 _exit:
     mov rax, 1
