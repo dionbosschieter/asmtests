@@ -21,8 +21,9 @@ section .data
     filename: db "ips.txt", 0x0
 
 section .bss
-    input resd 1024
-    response resd 1
+    input resd 128
+    line resd 64
+    response resd 1024
 
 section .text
 global _start
@@ -40,16 +41,55 @@ _readfile:
     mov rax, 3 ; read
     mov rbx, [fdfile] ; stdin
     mov rcx, input
-    mov rdx, 1024
+    mov rdx, 128
     int 0x80 ; syscall
 
-    cmp rax, 0 ; reached eof yet
+    cmp rax, 0   ; reached eof yet
     jz _exit
-
+    cmp rax, 128 ; if we read less than the buffer, we put a null byte in,
+                 ; so the getnextline stops at the right moment,
+                 ; because we are reusing a buffer here without zeroing it
+    je _resetinputbufferpointer
+    mov [input + rax], byte 0 ; put 0 byte at end of buffer, if we don't do this
+_resetinputbufferpointer:
     mov r13, input ; reset offset in input buffer to beginning of buffer
 
+_getnextline:
+    cmp r14, 0
+    jnz _restorelinebuffercounter
+    mov rax, 0              ; reset line buffer counter
+    mov rbx, 0              ; reset rbx, who knows what is in it
+    jmp _readcharforline
+_restorelinebuffercounter:
+    mov rax, r14
+_readcharforline:
+    mov bl, [r13]           ; read first character
+    cmp bl, 0xa             ; reached newline?
+    jnz _processcharforline ; continue
+    mov rbx, 0
+    mov [line + rax], bl    ; put 0 char at end of string
+    inc r13
+    jmp _linecomplete
+_processcharforline:
+    cmp bl, 0x0             ; reached end of input buffer?
+    jz _readmorefrominput
+    mov [line + rax], rbx   ; stor the character in the line buffer
+    inc rax                 ; jump in line buffer to next char position
+    inc r13                 ; jump in input buffer to next char position
+    cmp rax, 63             ; reached end of buffer?
+    jz _linecomplete
+    jmp _readcharforline
+
+_readmorefrominput:
+    mov r14, rax ; store current location of linebuffer so that we can continue
+    jmp _readfile
+
+_linecomplete:
+    mov r14, 0    ; we are not in the middle of getting the next line, reset r14
+                  ; the getnextline logic depends on this
+
 _startreadip:
-    mov rcx, r13      ; point rcx to current offset in input buffer
+    mov rcx, line     ; point rcx to current offset in input buffer
     xor rdx, rdx      ; zero output char registry
     mov r8, 0         ; count for every pair, we start at 0
 
@@ -59,10 +99,8 @@ _readip:
                     ; 8 bits of the char
     cmp rbx, '.'    ; if this is a '.' we reached the end of the integer
     jz _ereadip     ; then we are finished for this cycle
-    cmp rbx, 0xa    ; we are done, end of string
+    cmp rbx, 0x0    ; we are done, end of string
     jz _ereadip     ; we are finished
-    cmp rbx, 0x0    ; end of buffer
-    jz _readfile    ; try to read more
 
     sub rbx, '0'   ; convert from ascii to dec
 
@@ -99,9 +137,6 @@ _nextchar:
     jmp _readip    ; read next char
 
 _storip:
-    inc rcx      ; increment to next char, skip newline
-    mov r13, rcx ; save current pointer of buffer for later use
-    
     mov rax, r12 ; we start with the last digit, because it is in reverse order
     shl rax, 8
     or rax, r11
@@ -119,7 +154,7 @@ _socket:
     mov rax, 359; sys_socket
     int 0x80 ; syscall
     cmp rax,-1
-    jz  _exit
+    jz _exit
     mov [fd], rax ; save file descriptor
 
 _connect:
@@ -149,7 +184,7 @@ _close:
     mov rax, 6 ; close
     int 0x80 ; syscall
 
-    jmp _startreadip
+    jmp _getnextline
 
 _exit:
     mov rax, 1
