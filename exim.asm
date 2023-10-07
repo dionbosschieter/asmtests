@@ -1,7 +1,6 @@
 section .data
     fd:       dq 0
     fdfile:   dq 0
-    one:      dq 1
 
     struc sockaddr
         sin_family  resb 2
@@ -17,8 +16,10 @@ section .data
         at sin_padding , db 0,0,0,0,0,0,0,0
     iend
 
-    ipstring:  db "37.97.128.3", 0xa, 0xd,
     filename: db "ips.txt", 0x0
+    postfix: db " is running exim", 0xa, 0xd, 0x0
+    postfixlen: equ $-postfix
+    strtomatch: db "Exim", 0x0
 
 section .bss
     input resd 128
@@ -171,13 +172,48 @@ _readsocket:
     mov rcx, response
     mov rdx, 1024 ; 1024 bytes ought to be enough
     int 0x80 ; syscall
+    mov [response + rax], byte 0 ; reset response buffer
+
+    ; prepare str compare
+    mov rcx, response
+    mov rdx, strtomatch
+
+_parseresponse:
+    mov bl, [rcx]    ; read char from response
+    cmp bl, 0x0      ; end of response found
+    jz _close        ; go to write section if we are at the end of the buffer
+    cmp bl, [rdx]    ; do we find the First letter?
+    jnz _nextresponsechar
+
+_comparenextchar:
+    inc rcx          ; next char
+    inc rdx          ; next char of what to compare with
+    cmp [rdx], byte 0
+    jz _write ; we are done, we matched all chars
+    mov bl, [rcx]    ; read char from response
+    cmp bl, 0x0      ; end of response found
+    jz _close        ; go to write section if we are at the end of the buffer
+    cmp bl, [rdx]    ; do we find the next char from the compare string
+    jnz _nextresponsechar
+    jmp _comparenextchar
+_nextresponsechar:
+    mov rdx, strtomatch ; reset str compare pointer to beginning of str to compare with
+    inc rcx
+    jmp _parseresponse
 
 _write:
     mov rax, 4 ; write
     mov rbx, 1 ; stdout
-    mov rcx, response
-    mov rdx, 1024
+    mov rcx, line
+    mov rdx, 64
     int 0x80 ; syscall
+
+_writenewline:
+    mov rax, 4
+    mov rbx, 1
+    mov rcx, postfix
+    mov rdx, postfixlen
+    int 0x80
 
 _close:
     mov rbx, [fd]
