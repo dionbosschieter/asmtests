@@ -4,27 +4,28 @@ section .data
     newconnectionmsg: db "[*] New request incoming from: ", 0x00
     requestreceivedmsg: db "[*] Request received: ", 0x00
     connerrormsg: db "[!] Failed accepting new connection", 0x0a, 0x00
-    response: db "HTTP/1.0 200 OK", 0x0a, "Content-Length: 27", 0x0a, 0x0a, "<h1>Assembly webserver</h1>", 0x00
+    response: db "HTTP/1.0 200 OK", 0x0a, "Content-Type: text/html", 0x0a, "Content-Length: 27", 0x0a, 0x0a, "<h1>Assembly webserver</h1>", 0x00
+    response404: db "HTTP/1.0 404 Not Found", 0x0a, "Content-Type: text/html", 0x0a, "Content-Length: 15", 0x0a, 0x0a, "<h1>404 :(</h1>", 0x00
+    response400: db "HTTP/1.0 400 Bad Request", 0x0a, 0x00
     method_get: db "GET"
     newline: db 0x0a, 0x00
-    connqueu: int 128
 
 section .bss
     sock resd 1
-    srcaddr resb 2
+    srcaddr resb 1040
     srcaddrlen resb 1
     conn resd 1
     request resb 128
-    methodlength resb 1
-    urllength resb 1
+    methodlength resd 1
+    urllength resd 1
+    urlpointer resd 1
 
 section .text
 global _start
 
 portnotavail:
     mov rcx, listenfailed
-    mov bl, 1 ; stdout
-    call write_string
+    call log_string
     jmp _exit
 
 connectionerr:
@@ -43,6 +44,12 @@ write_lstring: ; expects rdx to be set with strlen to print
     int 0x80 ; syscall
     ret
 
+log_string:
+    xor rbx, rbx ; clear rbx first before using
+    mov bl, 1 ; stdout
+    call write_string
+    ret
+
 strlen:
     xor rdx, rdx ; we count in rdx because we are lazy, saves a store, we need it for write in rdx
     jmp _strlen
@@ -54,6 +61,12 @@ _strlen:
     jmp _strlen
 _strlen_out:
     ret
+
+badrequest:
+    mov rbx, [conn] ; fd of current connection
+    mov rcx, response400
+    call write_string
+    jmp _close
 
 _exit:
     mov rax, 1
@@ -86,22 +99,18 @@ _bind:
     mov dl, 0x10 ; statically define length of struct on the stack, always the same length
     syscall
 
-    cmp rax, 0
+    cmp al, 0
     jnz portnotavail
 
 _listen:
     mov al, 50 ; listen
     ; rdi is normally set, but we've already set it it in _bind
-    mov rsi, [connqueu] ; max conn queue of 128 connections
+    xor rsi, rsi
+    mov rsi, 128 ; max conn queue of 128 connections
     xor rdx, rdx
     syscall
-
-
-_listenmsg:
     mov rcx, listeningmsg
-    xor rbx, rbx ; clear rbx first before using
-    mov bl, 1 ; stdout
-    call write_string
+    call log_string
 
 _accept:
     mov al, 43 ; accept
@@ -109,22 +118,22 @@ _accept:
     mov rsi, srcaddr
     mov rdx, srcaddrlen
     syscall
-    cmp rax, 0
+    cmp al, 0
     jle connectionerr
     mov [conn], rax ; store new connection fd to conn
 
 _newconnectionmsg:
     mov rcx, newconnectionmsg
-    xor rbx, rbx ; clear rbx first to  remove any bits
-    mov bl, 1 ; stdout
-    call write_string
+    call log_string
     mov rcx, srcaddr
-    call write_string
+    mov rdx, [srcaddrlen]
+    call write_lstring
     mov rcx, newline
     call write_string
 
 _readmsg:
-    mov rax, 3 ; read
+    xor rax, rax
+    mov al, 3 ; read
     mov rbx, [conn] ; fd of current connection
     mov rcx, request
     mov rdx, 128
@@ -137,55 +146,72 @@ _parsemethodparse:
     cmp [rcx], byte ' '
     jz _parsemethoddone
     cmp [rcx], byte 0
-    jz _close ; todo: invalid request
+    jz badrequest
     inc rcx ; ++ to next char
     jmp _parsemethodparse
 _parsemethoddone:
     mov rbx, rcx
-    sub rbx, request
-    mov [methodlength], rbx
+    sub rbx, request ; end-start = length
+    mov [methodlength], bl
 
 ; after that follows the URL part
 _parseurl:
     inc rcx ; jump past space
+    mov [urlpointer], rcx ; record start of url part
 _parseurlparse:
     cmp [rcx], byte ' '
     jz _parseurldone
     cmp [rcx], byte 0
-    jz _close ; todo: invalid request
+    jz badrequest
     inc rcx ; ++ to next char
     jmp _parseurlparse
 _parseurldone:
-    sub rcx, request
-    mov [urllength], rcx
+    sub rcx, [urlpointer] ; end-start = length
+    mov [urllength], cl
 
 _printrequest:
-    xor rbx, rbx ; clear rbx first to remove any bits
-    mov bl, 1 ; stdout
     mov rcx, requestreceivedmsg
-    call write_string
-    mov rcx, request
+    call log_string
 _printrequestmethod:
     xor rdx, rdx ; clear rdx first
+    mov rcx, request
     mov dl, [methodlength]
     call write_lstring
 _printrequesturl:
-    add rcx, rdx
+    mov rcx, [urlpointer]
     mov dl, [urllength]
-    sub dl, [methodlength]
     call write_lstring
-_printrequestnewline:
     mov rcx, newline
     call write_string
+
+; if *urlpointer == '/' respond with response
+; todo create strcmp function
+_checkurl:
+    mov rcx, [urlpointer]
+    cmp [rcx], byte '/'
+    jnz _404
+    cmp [urllength], byte 1 ; strlen is equal to what we expect
+    jnz _404
 
 _response:
     mov rbx, [conn] ; fd of current connection
     mov rcx, response
     call write_string
+    jmp _close
+
+_404:
+    mov rbx, [conn]
+    mov rcx, response404
+    call write_string
+    jmp _close
 
 _close:
     mov al, 3 ; close
     mov rdi, [conn]
     syscall
 
-jmp _exit
+_bye:
+    mov al, 3 ; close
+    mov rdi, [sock]
+    syscall
+    jmp _exit
