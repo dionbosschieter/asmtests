@@ -12,8 +12,8 @@ section .data
 
 section .bss
     sock resd 1
-    srcaddr resb 1040
-    srcaddrlen resb 1
+    srcaddr resb 16
+    srcaddrlen resd 1
     conn resd 1
     request resb 128
     methodlength resd 1
@@ -126,7 +126,8 @@ _newconnectionmsg:
     mov rcx, newconnectionmsg
     call log_string
     mov rcx, srcaddr
-    mov rdx, [srcaddrlen]
+    xor rdx, rdx ; clear rdx first
+    mov dl, [srcaddrlen] ; srcaddrlen amount of bytes that srcaddr has into dl
     call write_lstring
     mov rcx, newline
     call write_string
@@ -209,6 +210,10 @@ _close:
     mov al, 3 ; close
     mov rdi, [conn]
     syscall
+
+; loop back
+mov [request], byte 0 ; clean request buffer
+jmp _accept
 
 _bye:
     mov al, 3 ; close
