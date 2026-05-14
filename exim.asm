@@ -2,6 +2,16 @@ section .data
     fd:       dq 0
     fdfile:   dq 0
 
+    struc timeval
+        tv_sec  resb 8
+        tv_usec resb 8
+    endstruc
+
+    timeout istruc timeval
+        at tv_sec, db 0,0,0,0
+        at tv_usec, db 0,0,1,0
+    iend
+
     struc sockaddr
         sin_family  resb 2
         sin_port    resb 2
@@ -157,6 +167,23 @@ _socket:
     cmp rax,-1
     jz _exit
     mov [fd], rax ; save file descriptor
+
+_settimeout:
+    mov rax, 54 ; syscall 102 - socketcall
+    mov rdi, [fd] ; sockfd
+    mov rsi, 1 ; SOL_SOCKET
+    mov rdx, 21 ; SO_SNDTIMEO
+    mov r10, timeout
+    mov r8, 16
+    syscall	; kernel interrupt
+
+    mov rax, 54 ; syscall 102 - socketcall
+    mov rdi, [fd] ; sockfd
+    mov rsi, 1 ; SOL_SOCKET
+    mov rdx, 20 ; SO_RCVTIMEO
+    mov r10, timeout
+    mov r8, 16
+    syscall	; kernel interrupt
 
 _connect:
     mov rax, 362
