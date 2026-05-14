@@ -9,7 +9,7 @@ section .data
 
     timeout istruc timeval
         at tv_sec, db 0,0,0,0
-        at tv_usec, db 0,0,1,0
+        at tv_usec, db 0,0,5,0
     iend
 
     struc sockaddr
@@ -192,6 +192,8 @@ _connect:
     mov rdx, 0x10
     ; call connect
     int 0x80
+    cmp rax, 0 ; succes
+    jnz _close
 
 _readsocket:
     mov rax, 3 ; read
@@ -199,6 +201,9 @@ _readsocket:
     mov rcx, response
     mov rdx, 1024 ; 1024 bytes ought to be enough
     int 0x80 ; syscall
+    cmp rax, 0 ; succes
+    jb _close
+
     mov [response + rax], byte 0 ; reset response buffer
 
     ; prepare str compare
